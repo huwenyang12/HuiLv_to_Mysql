@@ -62,7 +62,7 @@ class CustomRate():
 
                 print([chName, enName, code, rate])
                 self.insert_qcca_base([chName, enName, code, rate, month])
-                # tab.close()
+        tab.close()
 
     def insert_qcca_base(self, params):
 

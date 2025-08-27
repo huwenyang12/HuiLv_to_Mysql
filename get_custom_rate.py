@@ -7,6 +7,8 @@ import traceback
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
+# 邮件
+from email_utils import EmailNotifier,notify_by_email
 
 class CustomRate():
 
@@ -62,7 +64,7 @@ class CustomRate():
 
                 print([chName, enName, code, rate])
                 self.insert_qcca_base([chName, enName, code, rate, month])
-                # tab.close()
+        tab.close()
 
     def insert_qcca_base(self, params):
 
@@ -112,7 +114,25 @@ class CustomRate():
                 if conn:
                     conn.close()
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
+#     customrate = CustomRate()
+#     cur_month = (datetime.now() + relativedelta(months=1)).strftime("%Y-%m")
+#     customrate.main(cur_month)
+
+# 邮件通知
+@notify_by_email(subject_prefix="汇率爬取任务")
+def run_task(month, notifier=None):
     customrate = CustomRate()
+    customrate.main(month)
+    return f"汇率数据已成功入库，月份：{month}"
+
+if __name__ == "__main__":
+    notifier = EmailNotifier(
+        account="hwy0821@yeah.net",
+        password="UJfaK32b4JDKGGP3",
+        smtp_server="smtp.yeah.net",
+        smtp_port=465
+    )
+
     cur_month = (datetime.now() + relativedelta(months=1)).strftime("%Y-%m")
-    customrate.main(cur_month)
+    run_task(cur_month, notifier=notifier)
