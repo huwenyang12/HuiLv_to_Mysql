@@ -7,39 +7,39 @@ import traceback
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
-# 邮件
-from email_utils import EmailNotifier,notify_by_email
-
 class CustomRate():
 
-    def __init__(self):
-        pass
-
-    def main(self, month = "2025-04"):
+    def main(self, start_month, end_month):
         tab = cc.chrome.open("https://www.guanwuxiaoer.com/haiguanhuilv.php")
         tab.wait_appear(locator.guanwuxiaoer.input_开始月份)
 
-        tab.find_element(locator.guanwuxiaoer.input_开始月份).set_text(month)
+        # 开始/结束分别填
+        tab.find_element(locator.guanwuxiaoer.input_开始月份).set_text(start_month)
         sleep(1)
-        tab.find_element(locator.guanwuxiaoer.input_结束月份).set_text(month)
+        tab.find_element(locator.guanwuxiaoer.input_结束月份).set_text(end_month)
         sleep(1)
-        tab.find_element(locator.guanwuxiaoer.input_开始月份).set_text(month)
+        tab.find_element(locator.guanwuxiaoer.input_开始月份).set_text(start_month)
         sleep(1)
 
-        if tab.find_element(locator.guanwuxiaoer.input_开始月份).get_text() != month:
-            raise Exception("查询错误，月份不对应")
+        # 校验开始月份
+        if tab.find_element(locator.guanwuxiaoer.input_开始月份).get_text() != start_month:
+            raise Exception("查询错误，开始月份不对应")
 
         tab.find_element(locator.guanwuxiaoer.button_查询).click()
         sleep(5)
 
         if tab.wait_appear(locator.guanwuxiaoer.span_共_120_条) == None:
             raise Exception("查询超时")
-        
+
         total_info = tab.find_element(locator.guanwuxiaoer.span_共_120_条).get_text()
         total = int(total_info.replace("共","").replace("条","").strip())
 
         pagecount = total // 10 if total % 10 == 0 else total // 10 + 1
-        
+
+        # 用 yyyymm 做范围判断，避免字符串比较坑
+        start_int = int(start_month.replace("-", ""))
+        end_int = int(end_month.replace("-", ""))
+
         for page in range(pagecount):
 
             tab.find_element(locator.guanwuxiaoer.number_el_input_inner).set_text(page+1)
@@ -49,12 +49,14 @@ class CustomRate():
             sleep(3)
 
             for rowIndex in range(10):
-                
+
                 if tab.wait_appear(locator.guanwuxiaoer.币种中文, {"index": rowIndex+1}, wait_timeout=10) == None:
                     break
 
                 cur_month = tab.find_element(locator.guanwuxiaoer.适用月份, {"index": rowIndex+1}).get_text().strip()
-                if cur_month != month:
+                cur_int = int(cur_month.replace("-", ""))
+
+                if cur_int < start_int or cur_int > end_int:
                     continue
 
                 chName = tab.find_element(locator.guanwuxiaoer.币种中文, {"index": rowIndex+1}).get_text().strip()
@@ -62,9 +64,11 @@ class CustomRate():
                 code = tab.find_element(locator.guanwuxiaoer.币种代码, {"index": rowIndex+1}).get_text().strip()
                 rate = tab.find_element(locator.guanwuxiaoer.海关汇率, {"index": rowIndex+1}).get_text().strip()
 
-                print([chName, enName, code, rate])
-                self.insert_qcca_base([chName, enName, code, rate, month])
+                print([chName, enName, code, rate, cur_month])
+                self.insert_qcca_base([chName, enName, code, rate, cur_month])
+
         tab.close()
+
 
     def insert_qcca_base(self, params):
 
@@ -78,8 +82,8 @@ class CustomRate():
         # 设置发布日期为当前时间
         release_date = datetime.now()
         
-        # SQL插入语句，字段顺序：month, rate。。。
-        sql = """INSERT ignore INTO cms_sync_custom_rate_month 
+        # SQL插入语句，字段顺序：month, rate。。。REPLACE INTO
+        sql = """INSERT ignore INTO cms_custom_rate_month 
                  (month, rate, currency_code, currency_name_cn, currency_name_en, release_date) 
                  VALUES (%s, %s, %s, %s, %s, %s)"""
 
@@ -87,7 +91,7 @@ class CustomRate():
         while True:
             if retry_times < 0:
                 raise Exception("入库失败，已重试3次")
-            
+        
             conn = MySQLdb.connect(
                 host="123.60.179.95",
                 port=3306,
@@ -99,7 +103,9 @@ class CustomRate():
             )
             cur = conn.cursor()
 
+
             try:            
+                # 执行插入操作
                 cur.execute(sql, (month_int, rate_float, code, chName, enName, release_date))
                 conn.commit()
                 print(f"成功插入数据：{chName} ({code}) - {rate_float}")
@@ -114,25 +120,6 @@ class CustomRate():
                 if conn:
                     conn.close()
 
-# if __name__ == "__main__":
-#     customrate = CustomRate()
-#     cur_month = (datetime.now() + relativedelta(months=1)).strftime("%Y-%m")
-#     customrate.main(cur_month)
-
-# 邮件通知
-@notify_by_email(subject_prefix="汇率爬取任务")
-def run_task(month, notifier=None):
-    customrate = CustomRate()
-    customrate.main(month)
-    return f"汇率数据已成功入库，月份：{month}"
-
 if __name__ == "__main__":
-    notifier = EmailNotifier(
-        account="hwy0821@yeah.net",
-        password="UJfaK32b4JDKGGP3",
-        smtp_server="smtp.yeah.net",
-        smtp_port=465
-    )
-
-    cur_month = (datetime.now() + relativedelta(months=1)).strftime("%Y-%m")
-    run_task(cur_month, notifier=notifier)
+    customrate = CustomRate()
+    customrate.main("2025-10", "2026-01")
