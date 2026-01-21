@@ -1,14 +1,25 @@
 from clicknium import clicknium as cc, locator
+import os
 from time import sleep
 import MySQLdb
 import MySQLdb.cursors as cors
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
 class CustomRate():
 
-    def get_conn(self):
+    def get_conn(self, is_test=False):
+        if is_test:
+            return MySQLdb.connect(
+                host="localhost",
+                port=3306,
+                user="root",
+                passwd="root",
+                db="ysx-cms",
+                charset='utf8mb4',
+                cursorclass=cors.DictCursor
+            )
         return MySQLdb.connect(
             host="123.60.179.95",
             port=3306,
@@ -27,8 +38,8 @@ class CustomRate():
         ym = next_month_dt.strftime("%Y-%m")
         return ym, ym
 
-    def main(self, start_month=None, end_month=None):
-        # 不传则默认只抓下个月
+    # 这里保留你原 main 结构：只是允许 start_month/end_month 为空时自动用下个月
+    def main(self, start_month=None, end_month=None, is_test=False):
         if not start_month or not end_month:
             start_month, end_month = self._get_next_month_range()
             print(f"[CustomRate] 本次仅抓取下个月汇率：{start_month} ~ {end_month}")
@@ -40,7 +51,6 @@ class CustomRate():
                 elem.click()
         except:
             pass
-
         tab.wait_appear(locator.guanwuxiaoer.input_开始月份)
 
         # 开始/结束分别填
@@ -58,7 +68,7 @@ class CustomRate():
         tab.find_element(locator.guanwuxiaoer.button_查询).click()
         sleep(5)
 
-        if tab.wait_appear(locator.guanwuxiaoer.span_共_120_条) is None:
+        if tab.wait_appear(locator.guanwuxiaoer.span_共_120_条) == None:
             raise Exception("查询超时")
 
         total_info = tab.find_element(locator.guanwuxiaoer.span_共_120_条).get_text()
@@ -76,7 +86,7 @@ class CustomRate():
             sleep(3)
 
             for rowIndex in range(10):
-                if tab.wait_appear(locator.guanwuxiaoer.币种中文, {"index": rowIndex + 1}, wait_timeout=10) is None:
+                if tab.wait_appear(locator.guanwuxiaoer.币种中文, {"index": rowIndex + 1}, wait_timeout=10) == None:
                     break
 
                 cur_month = tab.find_element(locator.guanwuxiaoer.适用月份, {"index": rowIndex + 1}).get_text().strip()
@@ -91,11 +101,11 @@ class CustomRate():
                 rate = tab.find_element(locator.guanwuxiaoer.海关汇率, {"index": rowIndex + 1}).get_text().strip()
 
                 print([chName, enName, code, rate, cur_month])
-                self.insert_qcca_base([chName, enName, code, rate, cur_month])
+                self.insert_qcca_base([chName, enName, code, rate, cur_month], is_test=is_test)
 
         tab.close()
 
-    def insert_qcca_base(self, params):
+    def insert_qcca_base(self, params, is_test=False):
         chName, enName, code, rate, month = params
 
         month_int = int(month.replace("-", ""))
@@ -114,7 +124,7 @@ class CustomRate():
             conn = None
             cur = None
             try:
-                conn = self.get_conn()
+                conn = self.get_conn(is_test=is_test)
                 cur = conn.cursor()
 
                 cur.execute(sql, (month_int, rate_float, code, chName, enName, release_date))
@@ -136,6 +146,8 @@ class CustomRate():
 
 if __name__ == "__main__":
     customrate = CustomRate()
-    # 自动只抓取下个月
-    customrate.main()
+    # 方式1：自动只抓下个月
+    customrate.main(is_test=False)
+
+    # 方式2：手动传月份范围
     # customrate.main("2025-10", "2026-01", is_test=False)
