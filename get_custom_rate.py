@@ -30,7 +30,20 @@ class CustomRate():
             cursorclass=cors.DictCursor
         )
 
-    def main(self, start_month, end_month, is_test=False):
+    def _get_next_month_range(self):
+        """
+        返回下个月的查询范围：start_month=end_month=YYYY-MM
+        """
+        next_month_dt = datetime.now() + relativedelta(months=1)
+        ym = next_month_dt.strftime("%Y-%m")
+        return ym, ym
+
+    # 这里保留你原 main 结构：只是允许 start_month/end_month 为空时自动用下个月
+    def main(self, start_month=None, end_month=None, is_test=False):
+        if not start_month or not end_month:
+            start_month, end_month = self._get_next_month_range()
+            print(f"[CustomRate] 本次仅抓取下个月汇率：{start_month} ~ {end_month}")
+
         tab = cc.chrome.open("https://www.guanwuxiaoer.com/haiguanhuilv.php")
         try:
             elem = tab.wait_appear(locator.guanwuxiaoer.img_close, wait_timeout=2)
@@ -59,33 +72,33 @@ class CustomRate():
             raise Exception("查询超时")
 
         total_info = tab.find_element(locator.guanwuxiaoer.span_共_120_条).get_text()
-        total = int(total_info.replace("共","").replace("条","").strip())
+        total = int(total_info.replace("共", "").replace("条", "").strip())
         pagecount = total // 10 if total % 10 == 0 else total // 10 + 1
 
         start_int = int(start_month.replace("-", ""))
         end_int = int(end_month.replace("-", ""))
 
         for page in range(pagecount):
-            tab.find_element(locator.guanwuxiaoer.number_el_input_inner).set_text(page+1)
+            tab.find_element(locator.guanwuxiaoer.number_el_input_inner).set_text(page + 1)
             sleep(1)
 
             tab.find_element(locator.guanwuxiaoer.span_共_120_条).click()
             sleep(3)
 
             for rowIndex in range(10):
-                if tab.wait_appear(locator.guanwuxiaoer.币种中文, {"index": rowIndex+1}, wait_timeout=10) == None:
+                if tab.wait_appear(locator.guanwuxiaoer.币种中文, {"index": rowIndex + 1}, wait_timeout=10) == None:
                     break
 
-                cur_month = tab.find_element(locator.guanwuxiaoer.适用月份, {"index": rowIndex+1}).get_text().strip()
+                cur_month = tab.find_element(locator.guanwuxiaoer.适用月份, {"index": rowIndex + 1}).get_text().strip()
                 cur_int = int(cur_month.replace("-", ""))
 
                 if cur_int < start_int or cur_int > end_int:
                     continue
 
-                chName = tab.find_element(locator.guanwuxiaoer.币种中文, {"index": rowIndex+1}).get_text().strip()
-                enName = tab.find_element(locator.guanwuxiaoer.币种英文, {"index": rowIndex+1}).get_text().strip()
-                code = tab.find_element(locator.guanwuxiaoer.币种代码, {"index": rowIndex+1}).get_text().strip()
-                rate = tab.find_element(locator.guanwuxiaoer.海关汇率, {"index": rowIndex+1}).get_text().strip()
+                chName = tab.find_element(locator.guanwuxiaoer.币种中文, {"index": rowIndex + 1}).get_text().strip()
+                enName = tab.find_element(locator.guanwuxiaoer.币种英文, {"index": rowIndex + 1}).get_text().strip()
+                code = tab.find_element(locator.guanwuxiaoer.币种代码, {"index": rowIndex + 1}).get_text().strip()
+                rate = tab.find_element(locator.guanwuxiaoer.海关汇率, {"index": rowIndex + 1}).get_text().strip()
 
                 print([chName, enName, code, rate, cur_month])
                 self.insert_qcca_base([chName, enName, code, rate, cur_month], is_test=is_test)
@@ -133,4 +146,8 @@ class CustomRate():
 
 if __name__ == "__main__":
     customrate = CustomRate()
-    customrate.main("2025-10", "2026-01", is_test=True)
+    # 方式1：自动只抓下个月
+    customrate.main(is_test=False)
+
+    # 方式2：手动传月份范围
+    # customrate.main("2025-10", "2026-01", is_test=False)
