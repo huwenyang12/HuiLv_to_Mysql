@@ -6,6 +6,19 @@ import traceback
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
+import os
+import logging
+
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs.log")
+logging.basicConfig(
+    filename=LOG_PATH,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    encoding="utf-8"
+)
+logger = logging.getLogger("CustomRate")
+
+
 class CustomRate():
 
     def get_conn(self):
@@ -50,79 +63,100 @@ class CustomRate():
                 conn.close()
 
     def main(self, start_month=None, end_month=None):
+        logger.info("任务开始")
+
         # 不传则默认只抓下个月
         if not start_month or not end_month:
             start_month, end_month = self._get_next_month_range()
-            print(f"[CustomRate] 本次仅抓取下个月汇率：{start_month} ~ {end_month}")
+            logger.info(f"[CustomRate] 本次仅抓取下个月汇率：{start_month} ~ {end_month}")
 
         # 抓取前先查库，下个月已有数据就不抓
         if start_month == end_month and self._has_month_data(start_month):
-            print(f"[CustomRate] {start_month} 已存在数据，跳过抓取。")
+            logger.info(f"[CustomRate] {start_month} 已存在数据，跳过抓取。")
+            logger.info("任务结束（跳过抓取）")
             return
 
-        tab = cc.chrome.open("https://www.guanwuxiaoer.com/haiguanhuilv.php")
+        tab = None
         try:
-            elem = tab.wait_appear(locator.guanwuxiaoer.img_close, wait_timeout=2)
-            if elem:
-                elem.click()
-        except:
-            pass
+            tab = cc.chrome.open("https://www.guanwuxiaoer.com/haiguanhuilv.php")
+            logger.info("已打开网页")
 
-        tab.wait_appear(locator.guanwuxiaoer.input_开始月份)
+            try:
+                elem = tab.wait_appear(locator.guanwuxiaoer.img_close, wait_timeout=2)
+                if elem:
+                    elem.click()
+                    logger.info("已关闭弹窗")
+            except Exception:
+                logger.debug("关闭弹窗失败（可忽略）")
 
-        # 开始/结束分别填
-        tab.find_element(locator.guanwuxiaoer.input_开始月份).set_text(start_month)
-        sleep(1)
-        tab.find_element(locator.guanwuxiaoer.input_结束月份).set_text(end_month)
-        sleep(1)
-        tab.find_element(locator.guanwuxiaoer.input_开始月份).set_text(start_month)
-        sleep(1)
+            tab.wait_appear(locator.guanwuxiaoer.input_开始月份)
 
-        # 校验开始月份
-        if tab.find_element(locator.guanwuxiaoer.input_开始月份).get_text() != start_month:
-            tab.close()
-            raise Exception("查询错误，开始月份不对应")
-
-        tab.find_element(locator.guanwuxiaoer.button_查询).click()
-        sleep(5)
-
-        if tab.wait_appear(locator.guanwuxiaoer.span_共_120_条) is None:
-            tab.close()
-            raise Exception("查询超时")
-
-        total_info = tab.find_element(locator.guanwuxiaoer.span_共_120_条).get_text()
-        total = int(total_info.replace("共", "").replace("条", "").strip())
-        pagecount = total // 10 if total % 10 == 0 else total // 10 + 1
-
-        start_int = int(start_month.replace("-", ""))
-        end_int = int(end_month.replace("-", ""))
-
-        for page in range(pagecount):
-            tab.find_element(locator.guanwuxiaoer.number_el_input_inner).set_text(page + 1)
+            # 开始/结束分别填
+            tab.find_element(locator.guanwuxiaoer.input_开始月份).set_text(start_month)
+            sleep(1)
+            tab.find_element(locator.guanwuxiaoer.input_结束月份).set_text(end_month)
+            sleep(1)
+            tab.find_element(locator.guanwuxiaoer.input_开始月份).set_text(start_month)
             sleep(1)
 
-            tab.find_element(locator.guanwuxiaoer.span_共_120_条).click()
-            sleep(3)
+            # 校验开始月份
+            if tab.find_element(locator.guanwuxiaoer.input_开始月份).get_text() != start_month:
+                raise Exception("查询错误，开始月份不对应")
 
-            for rowIndex in range(10):
-                if tab.wait_appear(locator.guanwuxiaoer.币种中文, {"index": rowIndex + 1}, wait_timeout=10) is None:
-                    break
+            tab.find_element(locator.guanwuxiaoer.button_查询).click()
+            sleep(5)
 
-                cur_month = tab.find_element(locator.guanwuxiaoer.适用月份, {"index": rowIndex + 1}).get_text().strip()
-                cur_int = int(cur_month.replace("-", ""))
+            if tab.wait_appear(locator.guanwuxiaoer.span_共_120_条) is None:
+                raise Exception("查询超时")
 
-                if cur_int < start_int or cur_int > end_int:
-                    continue
+            total_info = tab.find_element(locator.guanwuxiaoer.span_共_120_条).get_text()
+            total = int(total_info.replace("共", "").replace("条", "").strip())
+            pagecount = total // 10 if total % 10 == 0 else total // 10 + 1
+            logger.info(f"查询结果 total={total}, pagecount={pagecount}")
 
-                chName = tab.find_element(locator.guanwuxiaoer.币种中文, {"index": rowIndex + 1}).get_text().strip()
-                enName = tab.find_element(locator.guanwuxiaoer.币种英文, {"index": rowIndex + 1}).get_text().strip()
-                code = tab.find_element(locator.guanwuxiaoer.币种代码, {"index": rowIndex + 1}).get_text().strip()
-                rate = tab.find_element(locator.guanwuxiaoer.海关汇率, {"index": rowIndex + 1}).get_text().strip()
+            start_int = int(start_month.replace("-", ""))
+            end_int = int(end_month.replace("-", ""))
 
-                print([chName, enName, code, rate, cur_month])
-                self.insert_qcca_base([chName, enName, code, rate, cur_month])
+            for page in range(pagecount):
+                tab.find_element(locator.guanwuxiaoer.number_el_input_inner).set_text(page + 1)
+                sleep(1)
 
-        tab.close()
+                tab.find_element(locator.guanwuxiaoer.span_共_120_条).click()
+                sleep(3)
+
+                for rowIndex in range(10):
+                    if tab.wait_appear(locator.guanwuxiaoer.币种中文, {"index": rowIndex + 1}, wait_timeout=10) is None:
+                        break
+
+                    cur_month = tab.find_element(locator.guanwuxiaoer.适用月份, {"index": rowIndex + 1}).get_text().strip()
+                    cur_int = int(cur_month.replace("-", ""))
+
+                    if cur_int < start_int or cur_int > end_int:
+                        continue
+
+                    chName = tab.find_element(locator.guanwuxiaoer.币种中文, {"index": rowIndex + 1}).get_text().strip()
+                    enName = tab.find_element(locator.guanwuxiaoer.币种英文, {"index": rowIndex + 1}).get_text().strip()
+                    code = tab.find_element(locator.guanwuxiaoer.币种代码, {"index": rowIndex + 1}).get_text().strip()
+                    rate = tab.find_element(locator.guanwuxiaoer.海关汇率, {"index": rowIndex + 1}).get_text().strip()
+
+                    logger.info(f"{[chName, enName, code, rate, cur_month]}")
+
+                    self.insert_qcca_base([chName, enName, code, rate, cur_month])
+
+            logger.info("任务结束（抓取完成）")
+
+        except Exception as e:
+            logger.error("任务异常：%s", traceback.format_exc())
+            raise
+
+        finally:
+            if tab:
+                try:
+                    tab.close()
+                    logger.info("已关闭网页")
+                except Exception:
+                    logger.debug("关闭网页失败（可忽略）")
+
 
     def insert_qcca_base(self, params):
         chName, enName, code, rate, month = params
@@ -148,11 +182,15 @@ class CustomRate():
 
                 cur.execute(sql, (month_int, rate_float, code, chName, enName, release_date))
                 conn.commit()
-                print(f"成功插入数据：{chName} ({code}) - {rate_float}")
+
+                msg = f"成功插入数据：{chName} ({code}) - {rate_float}"
+                logger.info(msg)
                 break
 
             except Exception:
-                print("插入失败，" + traceback.format_exc())
+                err = "插入失败，" + traceback.format_exc()
+                logger.error(err)
+
                 if conn:
                     conn.rollback()
                 retry_times -= 1
@@ -163,9 +201,8 @@ class CustomRate():
                 if conn:
                     conn.close()
 
+
 if __name__ == "__main__":
+    logger.info("========== 任务启动 ==========")
     customrate = CustomRate()
-
     customrate.main()
-
-    # customrate.main("2025-10", "2026-01")
