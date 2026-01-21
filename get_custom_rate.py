@@ -27,11 +27,38 @@ class CustomRate():
         ym = next_month_dt.strftime("%Y-%m")
         return ym, ym
 
+    def _has_month_data(self, month_ym: str, min_count: int = 1) -> bool:
+        """
+        month_ym: 'YYYY-MM'
+        当该月记录数 >= min_count 时，认为抓取成功 -> 直接跳过
+        """
+        month_int = int(month_ym.replace("-", ""))
+        sql = "SELECT COUNT(*) AS cnt FROM cms_custom_rate_month WHERE month=%s"
+        conn = None
+        cur = None
+        try:
+            conn = self.get_conn()
+            cur = conn.cursor()
+            cur.execute(sql, (month_int,))
+            row = cur.fetchone()
+            cnt = int((row or {}).get("cnt", 0))
+            return cnt >= int(min_count)
+        finally:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
+
     def main(self, start_month=None, end_month=None):
         # 不传则默认只抓下个月
         if not start_month or not end_month:
             start_month, end_month = self._get_next_month_range()
             print(f"[CustomRate] 本次仅抓取下个月汇率：{start_month} ~ {end_month}")
+
+        # 抓取前先查库，下个月已有数据就不抓
+        if start_month == end_month and self._has_month_data(start_month):
+            print(f"[CustomRate] {start_month} 已存在数据，跳过抓取。")
+            return
 
         tab = cc.chrome.open("https://www.guanwuxiaoer.com/haiguanhuilv.php")
         try:
@@ -53,12 +80,14 @@ class CustomRate():
 
         # 校验开始月份
         if tab.find_element(locator.guanwuxiaoer.input_开始月份).get_text() != start_month:
+            tab.close()
             raise Exception("查询错误，开始月份不对应")
 
         tab.find_element(locator.guanwuxiaoer.button_查询).click()
         sleep(5)
 
         if tab.wait_appear(locator.guanwuxiaoer.span_共_120_条) is None:
+            tab.close()
             raise Exception("查询超时")
 
         total_info = tab.find_element(locator.guanwuxiaoer.span_共_120_条).get_text()
@@ -136,6 +165,7 @@ class CustomRate():
 
 if __name__ == "__main__":
     customrate = CustomRate()
-    # 自动只抓取下个月
+
     customrate.main()
-    # customrate.main("2025-10", "2026-01", is_test=False)
+
+    # customrate.main("2025-10", "2026-01")
